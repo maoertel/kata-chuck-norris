@@ -20,15 +20,14 @@ object Main extends IOApp {
   private val dsl = new Http4sClientDsl[IO] {}
   import dsl._
 
-  private val clientIO = BlazeClientBuilder[IO](global).resource.use { client => IO(client) }
-  private val jokeCacheIO = Ref.of[IO, JokeCache](JokeCache())
+  private val withClient = (f: Client[IO] => IO[Joke]) => BlazeClientBuilder[IO](global).resource use f
+  private val jokeCache = Ref.of[IO, JokeCache](JokeCache())
 
   def run(args: List[String]): IO[ExitCode] = myApplication
 
   private def myApplication: IO[ExitCode] = IO.suspend {
     for {
-      client <- clientIO
-      joke <- getJoke(client)
+      joke <- withClient(getJoke)
       _ <- IO(println(joke.value))
       _ <- IO(println("Do you want another truth about Chuck Norris? y/n"))
       answer <- IO(StdIn.readLine())
@@ -43,14 +42,14 @@ object Main extends IOApp {
 
   private val updateCache = { joke: Joke =>
     for {
-      jokeCacheRef <- jokeCacheIO
+      jokeCacheRef <- jokeCache
       _ <- jokeCacheRef.update(old => old.next(joke))
     } yield joke
   }
 
   private lazy val recoverWithCachedJoke = { _: Throwable =>
     for {
-      jokeCacheRef <- jokeCacheIO
+      jokeCacheRef <- jokeCache
       cachedJoke <- jokeCacheRef.get
       joke <- IO(cachedJoke.joke)
     } yield joke
@@ -62,6 +61,7 @@ final case class JokeCache(joke: Joke = Joke("Corona virus washes his hands afte
 }
 
 final case class Joke(value: String) extends AnyVal
+
 object Joke {
   implicit val jokeDecoder: Decoder[Joke] = deriveDecoder[Joke]
 
